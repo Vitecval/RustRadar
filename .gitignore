@@ -1,0 +1,34 @@
+﻿# Visual Studio
+.vs/
+*.user
+*.suo
+*.userosscache
+*.sln.docstates
+
+# Build output
+bin/
+obj/
+[Bb]uild/
+[Dd]ebug/
+[Rr]elease/
+x64/
+x86/
+
+# Rider / JetBrains
+.idea/
+*.sln.iml
+
+# NuGet
+packages/
+*.nupkg
+
+# Logs
+*.log
+
+# OS junk
+Thumbs.db
+.DS_Store
+
+# Temporary files
+*.tmp
+*.temp

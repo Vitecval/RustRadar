@@ -22,6 +22,12 @@ public partial class MainWindow : Window
     private readonly PacketCaptureService
         _capture = new();
 
+    private readonly EntityManager
+    _passiveEntities =
+        new();
+
+    private long _passiveUiSample;
+
     private readonly CaptureFileLogger
         _fileLogger = new();
 
@@ -117,6 +123,18 @@ public partial class MainWindow : Window
 
         _uiTimer.Start();
 
+        if (NetProtect0100Decryptor
+        .SelfTest(
+            out string cryptoTest))
+        {
+            _logQueue.Enqueue(
+                $"[NETPROTECT] {cryptoTest}");
+        }
+        else
+        {
+            _logQueue.Enqueue(
+                $"[NETPROTECT] FAILED: {cryptoTest}");
+        }
 
         RefreshDevices();
     }
@@ -222,6 +240,12 @@ public partial class MainWindow : Window
                        out _))
             {
             }
+
+            _passiveEntities.Clear();
+
+            Interlocked.Exchange(
+                ref _passiveUiSample,
+                0);
 
             /*
              * Create both logs.
@@ -369,6 +393,46 @@ public partial class MainWindow : Window
             message);
 
 
+        /*
+ * Only S2C EntityPosition packets populate
+ * the passive entity map.
+ *
+ * encryption=0:
+ *     EffectiveBody = PlainBody
+ *
+ * encryption=2, state 01 00:
+ *     EffectiveBody = AES-GCM plaintext
+ *
+ * encryption=2, state 01 01:
+ *     EffectiveBody is currently empty
+ */
+        if (message.Direction ==
+                "S2C" &&
+            RustEntityPositionParser.TryParse(
+                message,
+                out RustEntityPosition?
+                    position) &&
+            position != null)
+        {
+            _passiveEntities.Apply(
+                position);
+
+            long sample =
+                Interlocked.Increment(
+                    ref _passiveUiSample);
+
+            if ((sample % 50) == 0)
+            {
+                _logQueue.Enqueue(
+                    $"[PASSIVE] POS " +
+                    $"id={position.EntityId} " +
+                    $"xyz=({position.X:F2}, " +
+                    $"{position.Y:F2}, " +
+                    $"{position.Z:F2}) " +
+                    $"state={position.ProtectionState}");
+            }
+        }
+
         string protection;
 
         if (message.IsProtected)
@@ -382,8 +446,10 @@ public partial class MainWindow : Window
 
             protection =
                 $"ENC " +
+                $"state={message.ProtectionStateText,-4} " +
                 $"body={message.ProtectedBodyLength,-4} " +
-                $"ctr={counter,-8}";
+                $"ctr={counter,-8} " +
+                $"{(message.DecryptionSucceeded ? "DEC" : "OPAQUE")}";
 
 
             /*
@@ -708,8 +774,15 @@ public partial class MainWindow : Window
         ProtectedCountText.Text =
             stats.ProtectedMessages.ToString("N0");
 
+        IReadOnlyList<RustEntityState>
+            passiveEntities =
+                _passiveEntities.Snapshot(
+                    TimeSpan.FromSeconds(
+                        10));
+
         PlainEntityCountText.Text =
-            stats.SplitPacketsCompleted.ToString("N0");
+            passiveEntities.Count
+                .ToString("N0");
 
 
         /*
@@ -731,8 +804,29 @@ public partial class MainWindow : Window
                         10));
 
 
-        RelayRadarControl.SetEntities(
-            relayEntities);
+        /*
+         * Passive capture is the preferred source now.
+         *
+         * When passive capture is running, show its
+         * decoded coordinates even if the list happens
+         * to be empty.
+         *
+         * Relay remains available as a fallback/test
+         * source.
+         */
+        if (_capture.IsRunning ||
+            passiveEntities.Count > 0)
+        {
+            RelayRadarControl.SetEntities(
+                passiveEntities,
+                "Passive XYZ");
+        }
+        else
+        {
+            RelayRadarControl.SetEntities(
+                relayEntities,
+                "Relay XYZ");
+        }
 
 
         /*

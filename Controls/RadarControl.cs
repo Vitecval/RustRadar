@@ -8,9 +8,17 @@ namespace RustRadar.Controls;
 public sealed class RadarControl :
     FrameworkElement
 {
-    private IReadOnlyList<RelayEntityState>
+    private sealed record RadarPoint(
+        ulong Id,
+        float X,
+        float Z);
+
+    private IReadOnlyList<RadarPoint>
         _entities =
-            Array.Empty<RelayEntityState>();
+            Array.Empty<RadarPoint>();
+
+    private string _sourceLabel =
+        "XYZ";
 
     public RadarControl()
     {
@@ -19,10 +27,43 @@ public sealed class RadarControl :
     }
 
     public void SetEntities(
-        IReadOnlyList<RelayEntityState> entities)
+        IReadOnlyList<RustEntityState> entities,
+        string sourceLabel =
+            "Passive decoded XYZ")
     {
+        _sourceLabel =
+            sourceLabel;
+
         _entities =
-            entities;
+            entities
+                .Select(
+                    entity =>
+                        new RadarPoint(
+                            entity.Id,
+                            entity.X,
+                            entity.Z))
+                .ToList();
+
+        InvalidateVisual();
+    }
+
+    public void SetEntities(
+        IReadOnlyList<RelayEntityState> entities,
+        string sourceLabel =
+            "Relay XYZ")
+    {
+        _sourceLabel =
+            sourceLabel;
+
+        _entities =
+            entities
+                .Select(
+                    entity =>
+                        new RadarPoint(
+                            entity.EntityId,
+                            entity.X,
+                            entity.Z))
+                .ToList();
 
         InvalidateVisual();
     }
@@ -30,8 +71,7 @@ public sealed class RadarControl :
     protected override void OnRender(
         DrawingContext dc)
     {
-        base.OnRender(
-            dc);
+        base.OnRender(dc);
 
         double width =
             ActualWidth;
@@ -57,7 +97,7 @@ public sealed class RadarControl :
         {
             DrawText(
                 dc,
-                "Waiting for plaintext RustRelay XYZ...",
+                $"Waiting for {_sourceLabel}...",
                 15,
                 15,
                 Brushes.Gray);
@@ -66,25 +106,17 @@ public sealed class RadarControl :
         }
 
         float minX =
-            _entities.Min(
-                e => e.X);
+            _entities.Min(e => e.X);
 
         float maxX =
-            _entities.Max(
-                e => e.X);
+            _entities.Max(e => e.X);
 
         float minZ =
-            _entities.Min(
-                e => e.Z);
+            _entities.Min(e => e.Z);
 
         float maxZ =
-            _entities.Max(
-                e => e.Z);
+            _entities.Max(e => e.Z);
 
-        /*
-         * Prevent divide-by-zero with only one
-         * entity or a tiny cluster.
-         */
         if (maxX - minX < 10)
         {
             float center =
@@ -124,9 +156,8 @@ public sealed class RadarControl :
                 height -
                 padding * 2);
 
-        foreach (
-            RelayEntityState entity
-            in _entities)
+        foreach (RadarPoint entity
+                 in _entities)
         {
             double normalizedX =
                 (entity.X - minX) /
@@ -141,9 +172,6 @@ public sealed class RadarControl :
                 normalizedX *
                 availableWidth;
 
-            /*
-             * Invert Z for screen coordinates.
-             */
             double py =
                 padding +
                 (1.0 -
@@ -162,7 +190,7 @@ public sealed class RadarControl :
 
         DrawText(
             dc,
-            $"Relay XYZ entities: {_entities.Count:N0}",
+            $"{_sourceLabel}: {_entities.Count:N0}",
             12,
             10,
             Brushes.White);
@@ -212,21 +240,13 @@ public sealed class RadarControl :
 
             dc.DrawLine(
                 gridPen,
-                new Point(
-                    x,
-                    0),
-                new Point(
-                    x,
-                    height));
+                new Point(x, 0),
+                new Point(x, height));
 
             dc.DrawLine(
                 gridPen,
-                new Point(
-                    0,
-                    y),
-                new Point(
-                    width,
-                    y));
+                new Point(0, y),
+                new Point(width, y));
         }
     }
 
@@ -240,18 +260,11 @@ public sealed class RadarControl :
         var formatted =
             new FormattedText(
                 text,
-
                 CultureInfo.InvariantCulture,
-
                 FlowDirection.LeftToRight,
-
-                new Typeface(
-                    "Consolas"),
-
+                new Typeface("Consolas"),
                 12,
-
                 brush,
-
                 1.0);
 
         dc.DrawText(

@@ -8,88 +8,181 @@ public sealed class RustEntityState
     public ulong Id { get; init; }
 
     public float X { get; set; }
-
     public float Y { get; set; }
-
     public float Z { get; set; }
 
     public float RotationX { get; set; }
-
     public float RotationY { get; set; }
-
     public float RotationZ { get; set; }
 
-    public DateTime LastSeenUtc { get; set; }
+    public float NetworkTime { get; set; }
+
+    public ulong? ParentId { get; set; }
+
+    public bool WasProtected { get; set; }
+
+    public RustProtectionState
+        ProtectionState
+    {
+        get;
+        set;
+    }
+
+    public DateTime LastSeenUtc
+    {
+        get;
+        set;
+    }
 }
 
 public sealed class EntityManager
 {
     private readonly ConcurrentDictionary<
         ulong,
-        RustEntityState> _entities = new();
+        RustEntityState> _entities =
+            new();
 
     public int Count =>
         _entities.Count;
 
     public void Apply(
-        RustMessageInfo message)
+        RustEntityPosition position)
     {
-        if (message.Position is RustPosition pos)
-        {
-            _entities.AddOrUpdate(
-                pos.EntityId,
+        _entities.AddOrUpdate(
+            position.EntityId,
 
-                _ => new RustEntityState
+            _ =>
+                new RustEntityState
                 {
-                    Id = pos.EntityId,
+                    Id =
+                        position.EntityId,
 
-                    X = pos.X,
-                    Y = pos.Y,
-                    Z = pos.Z,
+                    X =
+                        position.X,
 
-                    RotationX = pos.RotationX,
-                    RotationY = pos.RotationY,
-                    RotationZ = pos.RotationZ,
+                    Y =
+                        position.Y,
+
+                    Z =
+                        position.Z,
+
+                    RotationX =
+                        position.RotationX,
+
+                    RotationY =
+                        position.RotationY,
+
+                    RotationZ =
+                        position.RotationZ,
+
+                    NetworkTime =
+                        position.NetworkTime,
+
+                    ParentId =
+                        position.ParentId,
+
+                    WasProtected =
+                        position.WasProtected,
+
+                    ProtectionState =
+                        position.ProtectionState,
 
                     LastSeenUtc =
-                        DateTime.UtcNow
+                        position.TimestampUtc
                 },
 
-                (_, entity) =>
-                {
-                    entity.X = pos.X;
-                    entity.Y = pos.Y;
-                    entity.Z = pos.Z;
+            (_, entity) =>
+            {
+                entity.X =
+                    position.X;
 
-                    entity.RotationX =
-                        pos.RotationX;
+                entity.Y =
+                    position.Y;
 
-                    entity.RotationY =
-                        pos.RotationY;
+                entity.Z =
+                    position.Z;
 
-                    entity.RotationZ =
-                        pos.RotationZ;
+                entity.RotationX =
+                    position.RotationX;
 
-                    entity.LastSeenUtc =
-                        DateTime.UtcNow;
+                entity.RotationY =
+                    position.RotationY;
 
-                    return entity;
-                });
-        }
+                entity.RotationZ =
+                    position.RotationZ;
 
-        if (message.DestroyedEntityId
-            is ulong destroyed)
-        {
-            _entities.TryRemove(
-                destroyed,
-                out _);
-        }
+                entity.NetworkTime =
+                    position.NetworkTime;
+
+                entity.ParentId =
+                    position.ParentId;
+
+                entity.WasProtected =
+                    position.WasProtected;
+
+                entity.ProtectionState =
+                    position.ProtectionState;
+
+                entity.LastSeenUtc =
+                    position.TimestampUtc;
+
+                return entity;
+            });
+    }
+
+    public void Remove(
+        ulong entityId)
+    {
+        _entities.TryRemove(
+            entityId,
+            out _);
     }
 
     public IReadOnlyList<RustEntityState>
         Snapshot()
     {
-        return _entities.Values.ToList();
+        return
+            _entities.Values
+                .ToList();
+    }
+
+    public IReadOnlyList<RustEntityState>
+        Snapshot(
+            TimeSpan maxAge)
+    {
+        DateTime cutoff =
+            DateTime.UtcNow -
+            maxAge;
+
+        return
+            _entities.Values
+                .Where(
+                    entity =>
+                        entity.LastSeenUtc >=
+                        cutoff)
+                .ToList();
+    }
+
+    public void PurgeOlderThan(
+        TimeSpan age)
+    {
+        DateTime cutoff =
+            DateTime.UtcNow -
+            age;
+
+        foreach (KeyValuePair<
+                     ulong,
+                     RustEntityState> pair
+                 in _entities)
+        {
+            if (pair.Value.LastSeenUtc <
+                cutoff)
+            {
+                _entities.TryRemove(
+                    pair.Key,
+                    out _);
+            }
+        }
     }
 
     public void Clear()

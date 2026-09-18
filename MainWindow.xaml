@@ -339,7 +339,7 @@
                         CornerRadius="4">
 
                     <StackPanel>
-                        <TextBlock Text="Reassembled"
+                        <TextBlock Text="Decoded XYZ"
                                    Foreground="Gray"/>
 
                         <TextBlock x:Name="PlainEntityCountText"
@@ -440,7 +440,7 @@
                     <DockPanel Grid.Row="0"
                                Margin="6,4,6,8">
 
-                        <TextBlock Text="RustRelay Plaintext Radar"
+                        <TextBlock Text="Entity Radar"
                                    FontSize="17"
                                    FontWeight="Bold"
                                    DockPanel.Dock="Left"/>
@@ -466,8 +466,9 @@
                         <TextBlock TextWrapping="Wrap"
                                    Foreground="#999999">
 
-                            <Run Text="Only plaintext RustRelay coordinates are drawn here. "/>
-                            <Run Text="Protected packets from the normal client connection are never treated as XYZ."/>
+                            <Run Text="Passive capture is preferred. "/>
+                            <Run Text="Plaintext and authenticated NetProtect 01 00 EntityPosition bodies are drawn. "/>
+                            <Run Text="01 01 remains opaque until its per-session key derivation is understood."/>  
 
                         </TextBlock>
 

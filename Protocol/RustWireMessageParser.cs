@@ -122,6 +122,57 @@ public sealed record RustWireMessageInfo(
             ? ProtectedBody.Length
             : PlainBody.Length;
 
+
+    public byte[] DecryptedBody
+    {
+        get;
+        init;
+    } =
+    Array.Empty<byte>();
+
+    public string DecryptionMethod
+    {
+        get;
+        init;
+    } =
+        "";
+
+    public bool DecryptionSucceeded =>
+        DecryptedBody.Length > 0;
+
+    public byte[] EffectiveBody
+    {
+        get
+        {
+            if (DecryptionSucceeded)
+                return DecryptedBody;
+
+            if (!IsProtected)
+                return PlainBody;
+
+            return Array.Empty<byte>();
+        }
+    }
+
+    public string DecryptedBodyPreviewHex
+    {
+        get
+        {
+            if (DecryptedBody.Length == 0)
+                return "";
+
+            int count =
+                Math.Min(
+                    DecryptedBody.Length,
+                    32);
+
+            return Convert.ToHexString(
+                DecryptedBody.AsSpan(
+                    0,
+                    count));
+        }
+    }
+
     /*
      * Literal protection-envelope state.
      */
@@ -334,6 +385,31 @@ public static class RustWireMessageParser
                 null;
         }
 
+        byte[] decryptedBody =
+    Array.Empty<byte>();
+
+        string decryptionMethod =
+            "";
+
+        if (protectedPacket &&
+            parsedFlags == 0x0001 &&
+            parsedCounter.HasValue)
+        {
+            if (NetProtect0100Decryptor
+                    .TryDecrypt(
+                        protectedBody,
+                        parsedCounter.Value,
+                        authTag,
+                        out byte[] plaintext))
+            {
+                decryptedBody =
+                    plaintext;
+
+                decryptionMethod =
+                    "NetProtect 01 00 AES-256-GCM";
+            }
+        }
+
         RustPositionShape positionShape =
             DeterminePositionShape(
                 rawType,
@@ -364,7 +440,14 @@ public static class RustWireMessageParser
             positionShape,
 
             ProtectionCounterStatus.None,
-            null);
+            null)
+        {
+            DecryptedBody =
+                decryptedBody,
+
+            DecryptionMethod =
+                decryptionMethod
+        };
     }
 
     private static RustWireMessageKind GetKind(

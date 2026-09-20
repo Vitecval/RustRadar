@@ -28,6 +28,9 @@ public partial class MainWindow : Window
 
     private long _passiveUiSample;
 
+    private ulong?
+    _selfEntityId;
+
     private readonly CaptureFileLogger
         _fileLogger = new();
 
@@ -247,6 +250,9 @@ public partial class MainWindow : Window
                 ref _passiveUiSample,
                 0);
 
+            _selfEntityId =
+    null;
+
             /*
              * Create both logs.
              */
@@ -393,29 +399,54 @@ public partial class MainWindow : Window
             message);
 
 
-        /*
- * Only S2C EntityPosition packets populate
- * the passive entity map.
- *
- * encryption=0:
- *     EffectiveBody = PlainBody
- *
- * encryption=2, state 01 00:
- *     EffectiveBody = AES-GCM plaintext
- *
- * encryption=2, state 01 01:
- *     EffectiveBody is currently empty
- */
-        if (message.Direction ==
-                "S2C" &&
-            RustEntityPositionParser.TryParse(
+        if (RustEntityPositionParser.TryParse(
                 message,
                 out RustEntityPosition?
                     position) &&
             position != null)
         {
-            _passiveEntities.Apply(
-                position);
+            /*
+             * Server -> client:
+             * normal entity position updates.
+             */
+            if (message.Direction ==
+                "S2C")
+            {
+                _passiveEntities.Apply(
+                    position);
+            }
+
+            /*
+             * Experimental self detection.
+             *
+             * If Rust sends our own EntityPosition
+             * from client -> server, this entity ID
+             * should belong to us.
+             */
+            if (message.Direction ==
+                "C2S")
+            {
+                if (_selfEntityId !=
+                    position.EntityId)
+                {
+                    _selfEntityId =
+                        position.EntityId;
+
+                    _logQueue.Enqueue(
+                        $"[PASSIVE] SELF candidate " +
+                        $"id={position.EntityId} " +
+                        $"xyz=({position.X:F2}, " +
+                        $"{position.Y:F2}, " +
+                        $"{position.Z:F2})");
+                }
+
+                /*
+                 * Keep our own position in the same
+                 * entity manager used by the radar.
+                 */
+                _passiveEntities.Apply(
+                    position);
+            }
 
             long sample =
                 Interlocked.Increment(
@@ -425,6 +456,7 @@ public partial class MainWindow : Window
             {
                 _logQueue.Enqueue(
                     $"[PASSIVE] POS " +
+                    $"{message.Direction} " +
                     $"id={position.EntityId} " +
                     $"xyz=({position.X:F2}, " +
                     $"{position.Y:F2}, " +
@@ -778,7 +810,7 @@ public partial class MainWindow : Window
             passiveEntities =
                 _passiveEntities.Snapshot(
                     TimeSpan.FromSeconds(
-                        10));
+                        60));
 
         PlainEntityCountText.Text =
             passiveEntities.Count
@@ -819,7 +851,8 @@ public partial class MainWindow : Window
         {
             RelayRadarControl.SetEntities(
                 passiveEntities,
-                "Passive XYZ");
+                "Passive XYZ",
+                _selfEntityId);
         }
         else
         {

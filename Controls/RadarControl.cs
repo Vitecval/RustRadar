@@ -17,8 +17,24 @@ public sealed class RadarControl :
         _entities =
             Array.Empty<RadarPoint>();
 
+    private ulong?
+        _centerEntityId;
+
     private string _sourceLabel =
         "XYZ";
+
+    /*
+     * 500 Rust world units across.
+     *
+     * With a 500x500 pixel control:
+     *
+     * 1 pixel ~= 1 world meter/unit.
+     */
+    public double WorldSpan
+    {
+        get;
+        set;
+    } = 500.0;
 
     public RadarControl()
     {
@@ -29,10 +45,15 @@ public sealed class RadarControl :
     public void SetEntities(
         IReadOnlyList<RustEntityState> entities,
         string sourceLabel =
-            "Passive decoded XYZ")
+            "Passive decoded XYZ",
+        ulong? centerEntityId =
+            null)
     {
         _sourceLabel =
             sourceLabel;
+
+        _centerEntityId =
+            centerEntityId;
 
         _entities =
             entities
@@ -50,10 +71,15 @@ public sealed class RadarControl :
     public void SetEntities(
         IReadOnlyList<RelayEntityState> entities,
         string sourceLabel =
-            "Relay XYZ")
+            "Relay XYZ",
+        ulong? centerEntityId =
+            null)
     {
         _sourceLabel =
             sourceLabel;
+
+        _centerEntityId =
+            centerEntityId;
 
         _entities =
             entities
@@ -88,129 +114,237 @@ public sealed class RadarControl :
                 width,
                 height));
 
+        if (width <= 1 ||
+            height <= 1)
+        {
+            return;
+        }
+
         DrawGrid(
             dc,
             width,
             height);
+
+        double screenCenterX =
+            width / 2.0;
+
+        double screenCenterY =
+            height / 2.0;
+
+        /*
+         * Always draw the radar center.
+         */
+        Pen centerPen =
+            new(
+                Brushes.DimGray,
+                1);
+
+        dc.DrawLine(
+            centerPen,
+            new Point(
+                screenCenterX - 8,
+                screenCenterY),
+            new Point(
+                screenCenterX + 8,
+                screenCenterY));
+
+        dc.DrawLine(
+            centerPen,
+            new Point(
+                screenCenterX,
+                screenCenterY - 8),
+            new Point(
+                screenCenterX,
+                screenCenterY + 8));
 
         if (_entities.Count == 0)
         {
             DrawText(
                 dc,
                 $"Waiting for {_sourceLabel}...",
-                15,
-                15,
+                12,
+                10,
                 Brushes.Gray);
 
             return;
         }
 
-        float minX =
-            _entities.Min(e => e.X);
+        RadarPoint? centerEntity =
+            null;
 
-        float maxX =
-            _entities.Max(e => e.X);
-
-        float minZ =
-            _entities.Min(e => e.Z);
-
-        float maxZ =
-            _entities.Max(e => e.Z);
-
-        if (maxX - minX < 10)
+        if (_centerEntityId.HasValue)
         {
-            float center =
-                (maxX + minX) / 2f;
-
-            minX =
-                center - 5;
-
-            maxX =
-                center + 5;
+            centerEntity =
+                _entities.FirstOrDefault(
+                    entity =>
+                        entity.Id ==
+                        _centerEntityId.Value);
         }
 
-        if (maxZ - minZ < 10)
+        /*
+         * Until we positively identify ourselves,
+         * use the average point only so the radar
+         * remains useful.
+         *
+         * The text makes clear that this is NOT yet
+         * a true player-centered radar.
+         */
+        float centerWorldX;
+        float centerWorldZ;
+
+        bool selfKnown =
+            centerEntity != null;
+
+        if (centerEntity != null)
         {
-            float center =
-                (maxZ + minZ) / 2f;
+            centerWorldX =
+                centerEntity.X;
 
-            minZ =
-                center - 5;
+            centerWorldZ =
+                centerEntity.Z;
+        }
+        else
+        {
+            centerWorldX =
+                _entities.Average(
+                    entity => entity.X);
 
-            maxZ =
-                center + 5;
+            centerWorldZ =
+                _entities.Average(
+                    entity => entity.Z);
         }
 
-        const double padding =
-            30;
+        double usableSize =
+            Math.Min(
+                width,
+                height);
 
-        double availableWidth =
+        double worldSpan =
             Math.Max(
-                1,
-                width -
-                padding * 2);
+                1.0,
+                WorldSpan);
 
-        double availableHeight =
-            Math.Max(
-                1,
-                height -
-                padding * 2);
+        double pixelsPerWorldUnit =
+            usableSize /
+            worldSpan;
+
+        double halfWorld =
+            worldSpan /
+            2.0;
+
+        int visibleEntities =
+            0;
 
         foreach (RadarPoint entity
                  in _entities)
         {
-            double normalizedX =
-                (entity.X - minX) /
-                (maxX - minX);
+            double dx =
+                entity.X -
+                centerWorldX;
 
-            double normalizedZ =
-                (entity.Z - minZ) /
-                (maxZ - minZ);
+            double dz =
+                entity.Z -
+                centerWorldZ;
+
+            /*
+             * Outside the visible 500x500 area.
+             */
+            if (Math.Abs(dx) >
+                    halfWorld ||
+                Math.Abs(dz) >
+                    halfWorld)
+            {
+                continue;
+            }
 
             double px =
-                padding +
-                normalizedX *
-                availableWidth;
+                screenCenterX +
+                dx *
+                pixelsPerWorldUnit;
 
+            /*
+             * World +Z is upward on screen.
+             */
             double py =
-                padding +
-                (1.0 -
-                 normalizedZ) *
-                availableHeight;
+                screenCenterY -
+                dz *
+                pixelsPerWorldUnit;
 
-            dc.DrawEllipse(
-                Brushes.Red,
-                null,
-                new Point(
-                    px,
-                    py),
-                3,
-                3);
+            bool isSelf =
+                selfKnown &&
+                entity.Id ==
+                centerEntity!.Id;
+
+            if (isSelf)
+            {
+                dc.DrawEllipse(
+                    Brushes.LimeGreen,
+                    new Pen(
+                        Brushes.White,
+                        1),
+                    new Point(
+                        px,
+                        py),
+                    6,
+                    6);
+            }
+            else
+            {
+                dc.DrawEllipse(
+                    Brushes.Red,
+                    null,
+                    new Point(
+                        px,
+                        py),
+                    3,
+                    3);
+            }
+
+            visibleEntities++;
         }
 
         DrawText(
             dc,
-            $"{_sourceLabel}: {_entities.Count:N0}",
+            $"{_sourceLabel}: {visibleEntities:N0}/{_entities.Count:N0}",
             12,
             10,
             Brushes.White);
 
         DrawText(
             dc,
-            $"X {minX:F1} → {maxX:F1}",
+            $"View: {worldSpan:F0} x {worldSpan:F0}",
             12,
-            30,
+            28,
             Brushes.Gray);
 
         DrawText(
             dc,
-            $"Z {minZ:F1} → {maxZ:F1}",
+            $"Center: X={centerWorldX:F1} Z={centerWorldZ:F1}",
             12,
-            48,
+            46,
             Brushes.Gray);
+
+        if (selfKnown)
+        {
+            DrawText(
+                dc,
+                $"SELF: {centerEntity!.Id}",
+                12,
+                64,
+                Brushes.LimeGreen);
+        }
+        else
+        {
+            DrawText(
+                dc,
+                "SELF NOT IDENTIFIED - temporary average center",
+                12,
+                64,
+                Brushes.Orange);
+        }
     }
 
-    private static void DrawGrid(
+    private void DrawGrid(
         DrawingContext dc,
         double width,
         double height)
@@ -224,6 +358,12 @@ public sealed class RadarControl :
                         40)),
                 1);
 
+        /*
+         * 10x10 grid.
+         *
+         * With WorldSpan=500 this means
+         * each square is 50x50.
+         */
         for (int i = 1;
              i < 10;
              i++)
@@ -240,14 +380,52 @@ public sealed class RadarControl :
 
             dc.DrawLine(
                 gridPen,
-                new Point(x, 0),
-                new Point(x, height));
+                new Point(
+                    x,
+                    0),
+                new Point(
+                    x,
+                    height));
 
             dc.DrawLine(
                 gridPen,
-                new Point(0, y),
-                new Point(width, y));
+                new Point(
+                    0,
+                    y),
+                new Point(
+                    width,
+                    y));
         }
+
+        /*
+         * Make the exact center stronger.
+         */
+        Pen middlePen =
+            new(
+                new SolidColorBrush(
+                    Color.FromRgb(
+                        75,
+                        75,
+                        75)),
+                1);
+
+        dc.DrawLine(
+            middlePen,
+            new Point(
+                width / 2,
+                0),
+            new Point(
+                width / 2,
+                height));
+
+        dc.DrawLine(
+            middlePen,
+            new Point(
+                0,
+                height / 2),
+            new Point(
+                width,
+                height / 2));
     }
 
     private static void DrawText(
@@ -262,7 +440,8 @@ public sealed class RadarControl :
                 text,
                 CultureInfo.InvariantCulture,
                 FlowDirection.LeftToRight,
-                new Typeface("Consolas"),
+                new Typeface(
+                    "Consolas"),
                 12,
                 brush,
                 1.0);

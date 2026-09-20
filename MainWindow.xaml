@@ -455,7 +455,11 @@
 
                     <controls:RadarControl
                         x:Name="RelayRadarControl"
-                        Grid.Row="1"/>
+                        Grid.Row="1"
+                        Width="500"
+                        Height="500"
+                        HorizontalAlignment="Center"
+                        VerticalAlignment="Top"/>
 
 
                     <Border Grid.Row="2"
